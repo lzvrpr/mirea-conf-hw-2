@@ -5,10 +5,12 @@ import json
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import aiohttp
 
-from src.pypi import RepositoryError, build_url, fetch_metadata
+from src.pypi import (PyPiProvider, RepositoryError, build_url,
+                      fetch_metadata)
 
 DATA_DIR = Path(__file__).parent / "data"
 BASE_URL = "https://pypi.org/pypi"
@@ -96,6 +98,14 @@ class FetchTest(unittest.IsolatedAsyncioTestCase):
             await fetch_metadata(session, BASE_URL, "no-such-package")
         self.assertIn("не найден", str(caught.exception))
 
+    async def test_server_error(self) -> None:
+        """Прочие ошибки HTTP называют код ответа."""
+        self._prepare()
+        session = FakeSession(FakeResponse(500, b""))
+        with self.assertRaises(RepositoryError) as caught:
+            await fetch_metadata(session, BASE_URL, "requests")
+        self.assertIn("500", str(caught.exception))
+
     async def test_network_error(self) -> None:
         """Ошибка сети превращается в понятную ошибку."""
         self._prepare()
@@ -126,3 +136,48 @@ class FetchTest(unittest.IsolatedAsyncioTestCase):
         session = FakeSession(FakeResponse(200, payload))
         with self.assertRaises(RepositoryError):
             await fetch_metadata(session, BASE_URL, "requests")
+
+
+class ProviderTest(unittest.IsolatedAsyncioTestCase):
+    """Проверяет источник зависимостей из репозитория."""
+
+    async def test_filters_extras(self) -> None:
+        """Зависимости из extras в граф не попадают."""
+        metadata = {"info": {"requires_dist": [
+            "a>=1.0",
+            'b; extra == "dev"',
+        ]}}
+        session = FakeSession(FakeResponse(200, b""))
+        provider = PyPiProvider(session, BASE_URL)
+        with mock.patch("src.pypi.fetch_metadata",
+                        new=mock.AsyncMock(return_value=metadata)):
+            self.assertEqual(await provider("x"), ["a"])
+
+    async def test_parallel_requests_are_shared(self) -> None:
+        """Два одновременных запроса одного пакета дают один HTTP-запрос."""
+        calls = []
+
+        async def fake(session: Any, base_url: str, name: str,
+                       timeout: float = 15) -> dict:
+            """Считает вызовы и отдаёт фиксированные метаданные."""
+            calls.append(name)
+            await asyncio.sleep(0.01)
+            return {"info": {"requires_dist": ["a"]}}
+
+        session = FakeSession(FakeResponse(200, b""))
+        provider = PyPiProvider(session, BASE_URL)
+        with mock.patch("src.pypi.fetch_metadata", new=fake):
+            results = await asyncio.gather(provider("x"), provider("x"))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(results, [["a"], ["a"]])
+
+    async def test_cache(self) -> None:
+        """Повторный запрос берётся из кэша."""
+        metadata = {"info": {"requires_dist": ["a"]}}
+        session = FakeSession(FakeResponse(200, b""))
+        provider = PyPiProvider(session, BASE_URL)
+        with mock.patch("src.pypi.fetch_metadata",
+                        new=mock.AsyncMock(return_value=metadata)) as fetch:
+            await provider("x")
+            await provider("x")
+        self.assertEqual(fetch.await_count, 1)

@@ -1,0 +1,6 @@
+# Ветвление: один пакет в разных ветках дерева — это не цикл.
+ROOT LEFT
+ROOT RIGHT
+LEFT SHARED
+RIGHT SHARED
+SHARED BASE

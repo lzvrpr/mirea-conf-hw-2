@@ -6,18 +6,21 @@
 
 import asyncio
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import aiohttp
 
-USER_AGENT = "dependency-graph/0.2"
+from src.graph import DependencyError
+from src.requirement import direct_dependencies
+
+USER_AGENT = "dependency-graph/0.6"
 DEFAULT_TIMEOUT = 15
 METADATA_SUFFIX = "/json"
 HTTP_NOT_FOUND = 404
 HTTP_CLIENT_ERROR = 400
 
 
-class RepositoryError(Exception):
+class RepositoryError(DependencyError):
     """Ошибка получения метаданных из репозитория."""
 
 
@@ -64,3 +67,44 @@ def _decode(raw: bytes, package: str) -> Dict[str, Any]:
         raise RepositoryError(
             f"в ответе репозитория для {package!r} нет блока info")
     return data
+
+
+class PyPiProvider:
+    """Отдаёт прямые зависимости пакета из репозитория, с кэшем в памяти.
+
+    Кэш живёт в памяти процесса: при обходе сотен пакетов его стоит
+    перенести на диск, чтобы не повторять запросы между запусками.
+    """
+
+    def __init__(self, session: aiohttp.ClientSession, base_url: str,
+                 timeout: float = DEFAULT_TIMEOUT) -> None:
+        """Запоминает сессию, адрес репозитория и таймаут."""
+        self._session = session
+        self._base_url = base_url
+        self._timeout = timeout
+        self._cache: Dict[str, List[str]] = {}
+        self._tasks: Dict[str, Any] = {}
+
+    async def __call__(self, name: str) -> List[str]:
+        """Возвращает имена прямых зависимостей пакета.
+
+        Зависимости из extras не входят: они ставятся только по явному
+        запросу вида `pip install name[extra]`.
+        """
+        cached = self._cache.get(name)
+        if cached is not None:
+            return list(cached)
+        task = self._tasks.get(name)
+        if task is None:
+            task = asyncio.ensure_future(self._load(name))
+            self._tasks[name] = task
+        return list(await task)
+
+    async def _load(self, name: str) -> List[str]:
+        """Загружает зависимости пакета и кладёт их в кэш."""
+        metadata = await fetch_metadata(self._session, self._base_url,
+                                        name, self._timeout)
+        children = [item.name for item in direct_dependencies(metadata)
+                    if not item.extra]
+        self._cache[name] = children
+        return children
