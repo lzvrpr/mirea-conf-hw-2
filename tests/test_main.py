@@ -55,6 +55,41 @@ class ForwardTest(MainTestCase):
         self.assertIn("LEFT", output)
         self.assertIn("RIGHT", output)
 
+    def test_ascii_tree(self) -> None:
+        """С флагом --tree ветки печатаются символами ├── и └──."""
+        self._prepare()
+        code, output = self.run_main("--package", "ROOT", "--mode", "test",
+                                     "--repo-file", str(self.path), "--tree")
+        self.assertEqual(code, EXIT_OK)
+        self.assertIn("├── LEFT", output)
+        self.assertIn("└── RIGHT", output)
+
+    def test_mermaid(self) -> None:
+        """С флагом --mermaid печатается текст диаграммы."""
+        self._prepare()
+        code, output = self.run_main("--package", "ROOT", "--mode", "test",
+                                     "--repo-file", str(self.path),
+                                     "--mermaid")
+        self.assertEqual(code, EXIT_OK)
+        self.assertIn("graph TD", output)
+        self.assertIn("-->", output)
+
+    def test_image(self) -> None:
+        """С флагом --image создаётся SVG-файл."""
+        self._prepare()
+        target = Path(self.temp_dir.name) / "graph.svg"
+        code, output = self.run_main("--package", "ROOT", "--mode", "test",
+                                     "--repo-file", str(self.path),
+                                     "--image", str(target))
+        self.assertEqual(code, EXIT_OK)
+        self.assertTrue(target.is_file())
+        self.assertIn("<svg", target.read_text(encoding="utf-8"))
+        self.assertIn("изображение графа", output)
+
+
+class ReverseTest(MainTestCase):
+    """Проверяет обратный обход через main."""
+
     def test_direct_parents(self) -> None:
         """Обратные зависимости пакета SHARED — LEFT и RIGHT."""
         self._prepare()

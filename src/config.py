@@ -1,9 +1,9 @@
 """Параметры командной строки инструмента визуализации зависимостей.
 
-Имя пакета, источник зависимостей (URL-адрес репозитория или файл тестового
-репозитория), режим работы с тестовым репозиторием, режим вывода деревом,
-максимальная глубина анализа и режим обратных зависимостей задаются опциями
-командной строки. Каждый параметр проверяется.
+Имя пакета, источник зависимостей (URL репозитория или файл тестового
+репозитория) и режим работы задаются напрямую, а настройки обхода и вывода
+собраны в отдельный объект Options: глубина, вывод деревом, обратные
+зависимости, диаграмма Mermaid, файл изображения.
 """
 
 import argparse
@@ -23,9 +23,11 @@ PACKAGE_HELP = "имя анализируемого пакета"
 REPO_HELP = "URL-адрес репозитория пакетов"
 REPO_FILE_HELP = "путь к файлу тестового репозитория"
 MODE_HELP = "режим работы с тестовым репозиторием"
-TREE_HELP = "выводить зависимости в виде ASCII-дерева"
+TREE_HELP = "вывести зависимости деревом ASCII"
 DEPTH_HELP = "максимальная глубина анализа зависимостей"
 REVERSE_HELP = "вывести обратные зависимости: кто зависит от пакета"
+MERMAID_HELP = "вывести диаграмму зависимостей на языке Mermaid"
+IMAGE_HELP = "сохранить изображение графа в SVG-файл"
 
 MODE_REAL = "real"
 MODE_TEST = "test"
@@ -44,20 +46,57 @@ class ConfigError(Exception):
     """Ошибка в значении параметра командной строки."""
 
 
+class Options:
+    """Настройки обхода и вывода."""
+
+    def __init__(self, depth: int, tree: bool = False,
+                 reverse: bool = False, mermaid: bool = False,
+                 image: Optional[str] = None) -> None:
+        """Запоминает настройки обхода и вывода."""
+        self.depth = depth
+        self.tree = tree
+        self.reverse = reverse
+        self.mermaid = mermaid
+        self.image = image
+
+
 class Config:
     """Проверенные параметры запуска инструмента."""
 
     def __init__(self, package: str, repo: Optional[str],
-                 repo_file: Optional[str], mode: str, tree: bool,
-                 depth: int, reverse: bool = False) -> None:
+                 repo_file: Optional[str], mode: str,
+                 options: Options) -> None:
         """Запоминает проверенные значения параметров."""
         self.package = package
         self.repo = repo
         self.repo_file = repo_file
         self.mode = mode
-        self.tree = tree
-        self.depth = depth
-        self.reverse = reverse
+        self.options = options
+
+    @property
+    def depth(self) -> int:
+        """Максимальная глубина обхода."""
+        return self.options.depth
+
+    @property
+    def tree(self) -> bool:
+        """Нужен ли вывод деревом ASCII."""
+        return self.options.tree
+
+    @property
+    def reverse(self) -> bool:
+        """Нужны ли обратные зависимости."""
+        return self.options.reverse
+
+    @property
+    def mermaid(self) -> bool:
+        """Нужна ли диаграмма Mermaid."""
+        return self.options.mermaid
+
+    @property
+    def image(self) -> Optional[str]:
+        """Путь к файлу изображения графа или None."""
+        return self.options.image
 
     def describe(self) -> List[str]:
         """Возвращает все параметры в формате ключ-значение."""
@@ -69,6 +108,8 @@ class Config:
             f"вывод деревом: {YES if self.tree else NO}",
             f"максимальная глубина: {self.depth}",
             f"обратные зависимости: {YES if self.reverse else NO}",
+            f"диаграмма Mermaid: {YES if self.mermaid else NO}",
+            f"изображение графа: {self.image or NOT_SET}",
         ]
 
     @staticmethod
@@ -77,14 +118,15 @@ class Config:
         args = _parse_argv(argv)
         package = _check_package(args.package)
         depth = _check_depth(args.depth)
+        image = _check_image(args.image)
         if args.mode == MODE_TEST:
             repo = None
             repo_file = _check_test_source(args.repo, args.repo_file)
         else:
             repo = _check_real_source(args.repo, args.repo_file)
             repo_file = None
-        return Config(package, repo, repo_file, args.mode, args.tree, depth,
-                      args.reverse)
+        options = Options(depth, args.tree, args.reverse, args.mermaid, image)
+        return Config(package, repo, repo_file, args.mode, options)
 
 
 def _parse_argv(argv: Sequence[str]) -> argparse.Namespace:
@@ -99,6 +141,8 @@ def _parse_argv(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--depth", type=int, default=DEFAULT_DEPTH,
                         help=DEPTH_HELP)
     parser.add_argument("--reverse", action="store_true", help=REVERSE_HELP)
+    parser.add_argument("--mermaid", action="store_true", help=MERMAID_HELP)
+    parser.add_argument("--image", help=IMAGE_HELP)
     return parser.parse_args(list(argv))
 
 
@@ -127,6 +171,16 @@ def _check_depth(depth: int) -> int:
         raise ConfigError(
             f"глубина анализа не может быть больше {MAX_DEPTH}: {depth}")
     return depth
+
+
+def _check_image(path: Optional[str]) -> Optional[str]:
+    """Проверяет, что каталог для файла изображения существует."""
+    if not path:
+        return None
+    folder = Path(path).expanduser().resolve().parent
+    if not folder.is_dir():
+        raise ConfigError(f"каталог для изображения не найден: {folder}")
+    return path
 
 
 def _check_repo(url: str) -> str:

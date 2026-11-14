@@ -75,6 +75,20 @@ class RealModeTest(ConfigTestCase):
                             "--reverse")
         self.assertTrue(config.reverse)
 
+    def test_visual_flags(self) -> None:
+        """Флаги --mermaid и --image попадают в параметры."""
+        self._prepare()
+        config = self.build("--package", "requests", "--repo", GOOD_REPO,
+                            "--mermaid", "--image", "graph.svg")
+        self.assertTrue(config.mermaid)
+        self.assertEqual(config.image, "graph.svg")
+
+    def test_image_folder_missing(self) -> None:
+        """Несуществующий каталог для изображения даёт ошибку."""
+        self._prepare()
+        self.assert_config_error("--package", "requests", "--repo", GOOD_REPO,
+                                 "--image", "/нет-такого-каталога/g.svg")
+
 
 class TestModeTest(ConfigTestCase):
     """Разбирает параметры в режиме тестового репозитория."""
@@ -105,6 +119,8 @@ class DescribeTest(ConfigTestCase):
             f"вывод деревом: {NO}",
             "максимальная глубина: 2",
             f"обратные зависимости: {NO}",
+            f"диаграмма Mermaid: {NO}",
+            f"изображение графа: {NOT_SET}",
         ])
 
     def test_tree_yes(self) -> None:

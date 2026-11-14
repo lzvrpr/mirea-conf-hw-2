@@ -1,8 +1,8 @@
 """Инструмент визуализации графа зависимостей пакетного менеджера.
 
-Этап 4: дополнительные операции. К асинхронному обходу в глубину добавлен
-режим обратных зависимостей: те же gather и рекурсия, только по
-инвертированным рёбрам тестового репозитория.
+Этап 5: визуализация. Сеть и чтение файлов асинхронные: метаданные пакетов
+запрашиваются через aiohttp, дети одного узла строятся параллельно через
+asyncio.gather, файлы читаются и пишутся в отдельном потоке.
 
 Запуск: python main.py --package requests --repo https://pypi.org/pypi
 """
@@ -15,8 +15,10 @@ import aiohttp
 
 from src.config import MODE_TEST, Config, ConfigError
 from src.graph import Node, build_tree
+from src.mermaid import to_mermaid
 from src.pypi import PyPiProvider
-from src.report import format_summary, format_tree
+from src.report import format_ascii_tree, format_summary, format_tree
+from src.svg import render_svg
 from src.test_repo import TestRepositoryError, load_test_repository
 
 EXIT_OK = 0
@@ -67,13 +69,40 @@ async def build_provider(config: Config,
     return _real_provider(config, session)
 
 
-def print_tree(config: Config, root: Node, title: str) -> None:
-    """Печатает заголовок, дерево зависимостей и сводку."""
+def print_graph(config: Config, root: Node, title: str) -> None:
+    """Печатает дерево зависимостей, сводку и диаграмму Mermaid."""
     print(f"{title} {root.name}, глубина до {config.depth}:")
-    for line in format_tree(root):
+    lines = format_ascii_tree(root) if config.tree else format_tree(root)
+    for line in lines:
         print(line)
     for line in format_summary(root):
         print(line)
+    if config.mermaid:
+        print()
+        print("диаграмма Mermaid:")
+        for line in to_mermaid(root):
+            print(line)
+
+
+def _write_text(path: str, text: str) -> None:
+    """Записывает текст в файл в кодировке UTF-8."""
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+async def save_image(config: Config, root: Node) -> int:
+    """Сохраняет SVG-изображение графа и возвращает код выхода."""
+    path = config.image
+    if not path:
+        return EXIT_OK
+    try:
+        await asyncio.to_thread(_write_text, path, render_svg(root))
+    except OSError as error:
+        print(f"{ERROR_PREFIX}изображение не сохранено: {error}",
+              file=sys.stderr)
+        return EXIT_REPOSITORY_ERROR
+    print(f"изображение графа: {path}")
+    return EXIT_OK
 
 
 async def run_forward(config: Config,
@@ -91,8 +120,8 @@ async def run_forward(config: Config,
     if root.failed:
         print(f"{ERROR_PREFIX}{root.error}", file=sys.stderr)
         return EXIT_REPOSITORY_ERROR
-    print_tree(config, root, "дерево зависимостей пакета")
-    return EXIT_OK
+    print_graph(config, root, "дерево зависимостей пакета")
+    return await save_image(config, root)
 
 
 async def run_reverse(config: Config) -> int:
@@ -120,8 +149,8 @@ async def run_reverse(config: Config) -> int:
         return graph.parents(name)
 
     root = await build_tree(parents, config.package, config.depth)
-    print_tree(config, root, "обратные зависимости пакета")
-    return EXIT_OK
+    print_graph(config, root, "обратные зависимости пакета")
+    return await save_image(config, root)
 
 
 async def main_async(argv: Optional[Sequence[str]] = None) -> int:

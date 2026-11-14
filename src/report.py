@@ -51,6 +51,11 @@ def node_label(node: Node) -> str:
     return node.name
 
 
+def display_label(node: Node) -> str:
+    """Возвращает имя узла для диаграмм: цикл помечен, глубина — нет."""
+    return node.name + CYCLE_MARK if node.cycle else node.name
+
+
 def format_tree(root: Node) -> List[str]:
     """Возвращает строки дерева зависимостей с отступами по уровню."""
     return list(_tree_lines(root, 0))
@@ -71,3 +76,26 @@ def format_summary(root: Node) -> List[str]:
                            failed=sum(1 for node in nodes if node.failed),
                            truncated=sum(1 for node in nodes
                                          if node.truncated))]
+
+
+ASCII_BRANCH = "├── "
+ASCII_LAST = "└── "
+ASCII_LINE = "│   "
+ASCII_SPACE = "    "
+
+
+def format_ascii_tree(root: Node) -> List[str]:
+    """Возвращает дерево зависимостей в виде ASCII-дерева с ветками."""
+    lines = [node_label(root)]
+    _append_ascii(root, "", lines)
+    return lines
+
+
+def _append_ascii(node: Node, prefix: str, lines: List[str]) -> None:
+    """Дописывает в список строки детей узла с префиксом ветки."""
+    for index, child in enumerate(node.children):
+        last = index == len(node.children) - 1
+        branch = ASCII_LAST if last else ASCII_BRANCH
+        lines.append(prefix + branch + node_label(child))
+        extension = ASCII_SPACE if last else ASCII_LINE
+        _append_ascii(child, prefix + extension, lines)
