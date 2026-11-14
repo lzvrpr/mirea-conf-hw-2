@@ -68,6 +68,13 @@ class RealModeTest(ConfigTestCase):
         config = self.build("--package", "  requests  ", "--repo", GOOD_REPO)
         self.assertEqual(config.package, "requests")
 
+    def test_reverse_flag(self) -> None:
+        """Флаг --reverse попадает в параметры."""
+        self._prepare()
+        config = self.build("--package", "requests", "--repo", GOOD_REPO,
+                            "--reverse")
+        self.assertTrue(config.reverse)
+
 
 class TestModeTest(ConfigTestCase):
     """Разбирает параметры в режиме тестового репозитория."""
@@ -97,6 +104,7 @@ class DescribeTest(ConfigTestCase):
             f"файл тестового репозитория: {NOT_SET}",
             f"вывод деревом: {NO}",
             "максимальная глубина: 2",
+            f"обратные зависимости: {NO}",
         ])
 
     def test_tree_yes(self) -> None:

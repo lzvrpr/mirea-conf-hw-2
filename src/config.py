@@ -1,10 +1,9 @@
 """Параметры командной строки инструмента визуализации зависимостей.
 
-Этап 1 делает приложение настраиваемым: имя пакета, источник зависимостей
-(URL-адрес репозитория или файл тестового репозитория), режим работы с
-тестовым репозиторием, режим вывода деревом и максимальная глубина анализа
-задаются опциями командной строки. Каждый параметр проверяется, а затем все
-они выводятся в формате ключ-значение.
+Имя пакета, источник зависимостей (URL-адрес репозитория или файл тестового
+репозитория), режим работы с тестовым репозиторием, режим вывода деревом,
+максимальная глубина анализа и режим обратных зависимостей задаются опциями
+командной строки. Каждый параметр проверяется.
 """
 
 import argparse
@@ -26,6 +25,7 @@ REPO_FILE_HELP = "путь к файлу тестового репозитори
 MODE_HELP = "режим работы с тестовым репозиторием"
 TREE_HELP = "выводить зависимости в виде ASCII-дерева"
 DEPTH_HELP = "максимальная глубина анализа зависимостей"
+REVERSE_HELP = "вывести обратные зависимости: кто зависит от пакета"
 
 MODE_REAL = "real"
 MODE_TEST = "test"
@@ -49,7 +49,7 @@ class Config:
 
     def __init__(self, package: str, repo: Optional[str],
                  repo_file: Optional[str], mode: str, tree: bool,
-                 depth: int) -> None:
+                 depth: int, reverse: bool = False) -> None:
         """Запоминает проверенные значения параметров."""
         self.package = package
         self.repo = repo
@@ -57,6 +57,7 @@ class Config:
         self.mode = mode
         self.tree = tree
         self.depth = depth
+        self.reverse = reverse
 
     def describe(self) -> List[str]:
         """Возвращает все параметры в формате ключ-значение."""
@@ -67,6 +68,7 @@ class Config:
             f"файл тестового репозитория: {self.repo_file or NOT_SET}",
             f"вывод деревом: {YES if self.tree else NO}",
             f"максимальная глубина: {self.depth}",
+            f"обратные зависимости: {YES if self.reverse else NO}",
         ]
 
     @staticmethod
@@ -81,7 +83,8 @@ class Config:
         else:
             repo = _check_real_source(args.repo, args.repo_file)
             repo_file = None
-        return Config(package, repo, repo_file, args.mode, args.tree, depth)
+        return Config(package, repo, repo_file, args.mode, args.tree, depth,
+                      args.reverse)
 
 
 def _parse_argv(argv: Sequence[str]) -> argparse.Namespace:
@@ -95,6 +98,7 @@ def _parse_argv(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--tree", action="store_true", help=TREE_HELP)
     parser.add_argument("--depth", type=int, default=DEFAULT_DEPTH,
                         help=DEPTH_HELP)
+    parser.add_argument("--reverse", action="store_true", help=REVERSE_HELP)
     return parser.parse_args(list(argv))
 
 

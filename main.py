@@ -1,7 +1,8 @@
 """Инструмент визуализации графа зависимостей пакетного менеджера.
 
-Этап 3: основные операции. Граф строится асинхронным обходом в глубину,
-дети одного узла запрашиваются параллельно через asyncio.gather.
+Этап 4: дополнительные операции. К асинхронному обходу в глубину добавлен
+режим обратных зависимостей: те же gather и рекурсия, только по
+инвертированным рёбрам тестового репозитория.
 
 Запуск: python main.py --package requests --repo https://pypi.org/pypi
 """
@@ -22,6 +23,8 @@ EXIT_OK = 0
 EXIT_INVALID_PARAMS = 2
 EXIT_REPOSITORY_ERROR = 3
 ERROR_PREFIX = "ошибка: "
+REVERSE_ONLY_TEST = ("обратные зависимости строятся только по тестовому "
+                     "репозиторию: у репозитория PyPI нет обратного индекса")
 
 Provider = Callable[[str], Awaitable[List[str]]]
 
@@ -92,6 +95,35 @@ async def run_forward(config: Config,
     return EXIT_OK
 
 
+async def run_reverse(config: Config) -> int:
+    """Печатает обратные зависимости пакета и возвращает код выхода."""
+    if config.mode != MODE_TEST:
+        print(f"{ERROR_PREFIX}{REVERSE_ONLY_TEST}", file=sys.stderr)
+        return EXIT_INVALID_PARAMS
+    path = config.repo_file
+    if not path:
+        print(f"{ERROR_PREFIX}файл тестового репозитория не задан",
+              file=sys.stderr)
+        return EXIT_REPOSITORY_ERROR
+    try:
+        graph = await load_test_repository(path)
+    except TestRepositoryError as error:
+        print(f"{ERROR_PREFIX}{error}", file=sys.stderr)
+        return EXIT_REPOSITORY_ERROR
+    if config.package not in graph.names():
+        print(f"{ERROR_PREFIX}пакета {config.package!r} нет в тестовом "
+              "репозитории", file=sys.stderr)
+        return EXIT_REPOSITORY_ERROR
+
+    async def parents(name: str) -> List[str]:
+        """Возвращает пакеты, которые зависят от заданного."""
+        return graph.parents(name)
+
+    root = await build_tree(parents, config.package, config.depth)
+    print_tree(config, root, "обратные зависимости пакета")
+    return EXIT_OK
+
+
 async def main_async(argv: Optional[Sequence[str]] = None) -> int:
     """Выполняет работу в одном событийном цикле."""
     args = sys.argv[1:] if argv is None else list(argv)
@@ -100,6 +132,8 @@ async def main_async(argv: Optional[Sequence[str]] = None) -> int:
     except ConfigError as error:
         print(f"{ERROR_PREFIX}{error}", file=sys.stderr)
         return EXIT_INVALID_PARAMS
+    if config.reverse:
+        return await run_reverse(config)
     if config.mode == MODE_TEST:
         return await run_forward(config, None)
     async with aiohttp.ClientSession() as session:
